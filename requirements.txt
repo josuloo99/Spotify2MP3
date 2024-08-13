@@ -1,0 +1,5 @@
+requests==2.32.3
+mutagen==1.47.0
+yt-dlp==2025.4.30
+odesli==0.0.2
+dotenv==0.9.9

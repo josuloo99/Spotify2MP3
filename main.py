@@ -1,7 +1,7 @@
 import requests
 import base64
-import json
 import os
+from dotenv import load_dotenv
 from yt_dlp import YoutubeDL
 from mutagen.easyid3 import EasyID3
 from mutagen.id3 import ID3, APIC
@@ -9,11 +9,12 @@ from mutagen.mp3 import MP3
 from odesli.Odesli import Odesli
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-SPOTIFY_CLIENT_ID = ''
-SPOTIFY_CLIENT_SECRET = ''
-YOUTUBE_API_KEY = ''
+load_dotenv()
+SPOTIFY_CLIENT_ID = os.getenv("SPOTIFY_CLIENT_ID")
+SPOTIFY_CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET")
+YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY")
 OUTPUT_FOLDER = 'Downloads'
-MAX_WORKERS = 5  # Adjust as needed
+MAX_WORKERS = 3  # Adjust as needed
 
 def get_spotify_token(client_id, client_secret):
     auth_url = 'https://accounts.spotify.com/api/token'
@@ -30,7 +31,7 @@ def get_spotify_token(client_id, client_secret):
 def get_spotify_info(link, client_id, client_secret):
     token = get_spotify_token(client_id, client_secret)
     headers = {'Authorization': f'Bearer {token}'}
-    
+
     item_type = ''
     if 'track' in link:
         item_type = 'track'
@@ -40,18 +41,18 @@ def get_spotify_info(link, client_id, client_secret):
         item_type = 'playlist'
     else:
         raise ValueError("Invalid Spotify link. The link must be for a track, an album, or a playlist.")
-    
+
     item_id = link.split('/')[-1].split('?')[0]
     url = f'https://api.spotify.com/v1/{item_type}s/{item_id}'
-    
+
     response = requests.get(url, headers=headers)
     if response.status_code != 200:
         raise ValueError(f"Spotify API request failed with status code {response.status_code}")
-    
+
     data = response.json()
     if 'error' in data:
         raise ValueError(f"Error from Spotify API: {data['error']['message']}")
-    
+
     if item_type == 'track':
         song_info = {
             'Song name': data['name'],
@@ -62,7 +63,7 @@ def get_spotify_info(link, client_id, client_secret):
             'Cover picture link': data['album']['images'][0]['url'],
             'Track URL': data['external_urls']['spotify']
         }
-        return [song_info]
+        return [song_info], None
     elif item_type == 'album':
         album_info = {
             'Album name': data['name'],
@@ -82,8 +83,9 @@ def get_spotify_info(link, client_id, client_secret):
                 'Track URL': track['external_urls']['spotify']
             }
             tracks_info.append(track_info)
-        return tracks_info
+        return tracks_info, album_info['Album name']
     elif item_type == 'playlist':
+        playlist_name = data['name']
         tracks_info = []
         track_number = 1
         for item in data['tracks']['items']:
@@ -99,7 +101,7 @@ def get_spotify_info(link, client_id, client_secret):
             }
             tracks_info.append(track_info)
             track_number += 1
-        return tracks_info
+        return tracks_info, playlist_name
 
 def get_direct_link(link):
     odesli = Odesli()
@@ -127,7 +129,7 @@ def search_youtube_music(track_name, artist_name):
         results = response.json().get('items', [])
         if results:
             return f"https://www.youtube.com/watch?v={results[0]['id']['videoId']}"
-    
+
     return None
 
 def get_ytmusic_link(track):
@@ -145,17 +147,17 @@ def get_ytmusic_link(track):
 def correct_conflictive_characters(name: str):
     if name.endswith('.') or name.endswith(','):
         name = name[:-1]
-    
+
     name = name.replace(':','_')
-    
+
     return name
 
-def download_and_tag_track(track, output_folder=OUTPUT_FOLDER):
+def download_and_tag_track(track, output_folder):
     file_path = os.path.join(
-        output_folder, 
+        output_folder,
         correct_conflictive_characters(
             f"{track['Track number']:02d}. {track['Artists name']} - {track['Song name']}"))
-    
+
     if not os.path.exists(file_path + '.mp3'):
         ydl_opts = {
             'format': 'bestaudio/best',
@@ -166,7 +168,7 @@ def download_and_tag_track(track, output_folder=OUTPUT_FOLDER):
                 'preferredquality': '320',
             }],
         }
-        
+
         ytmusic_url = get_ytmusic_link(track)
         with YoutubeDL(ydl_opts) as ydl:
             ydl.download([ytmusic_url])
@@ -178,14 +180,14 @@ def download_and_tag_track(track, output_folder=OUTPUT_FOLDER):
             audio = MP3(file_path, ID3=ID3)
             audio.add_tags()
             audio = EasyID3(file_path)
-        
+
         audio['title'] = track['Song name']
         audio['artist'] = track['Artists name']
         audio['album'] = track['Album name']
         audio['date'] = track['Year']
         audio['tracknumber'] = str(track['Track number'])
         audio.save()
-        
+
         cover_url = track['Cover picture link']
         cover_data = requests.get(cover_url).content
         audio = MP3(file_path, ID3=ID3)
@@ -203,17 +205,30 @@ def download_and_tag_track(track, output_folder=OUTPUT_FOLDER):
     else:
         print(f"{file_path} already exists!")
 
-def download_and_tag_tracks(tracks_info):
+def download_and_tag_tracks(tracks_info, folder_name):
+    output_folder = os.path.join(OUTPUT_FOLDER, correct_conflictive_characters(folder_name))
+    os.makedirs(output_folder, exist_ok=True)
+
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-        futures = [executor.submit(download_and_tag_track, track) for track in tracks_info]
+        futures = [executor.submit(download_and_tag_track, track, output_folder) for track in tracks_info]
         for future in as_completed(futures):
             try:
                 future.result()
             except Exception as e:
                 print(f"Error: {e}")
 
-# Example usage
-link = "https://open.spotify.com/playlist/3KgF6BCRHhHW2TPlfrjKZi?si=191b66fb11494059"
+if __name__ == "__main__":
+    import sys
 
-tracks_info = get_spotify_info(link, SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET)
-download_and_tag_tracks(tracks_info)
+    if len(sys.argv) < 2:
+        print("Usage: python main.py <spotify_link>")
+        sys.exit(1)
+
+    link = sys.argv[1]
+
+    try:
+        tracks_info, folder_name = get_spotify_info(link, SPOTIFY_CLIENT_ID, SPOTIFY_CLIENT_SECRET)
+        download_and_tag_tracks(tracks_info, folder_name)
+    except Exception as e:
+        print(f"Error: {e}")
+        sys.exit(1)

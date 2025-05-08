@@ -145,11 +145,13 @@ def get_ytmusic_link(track):
     return ytmusic_link
 
 def correct_conflictive_characters(name: str):
-    if name.endswith('.') or name.endswith(','):
-        name = name[:-1]
+    if name:
+        if name.endswith('.') or name.endswith(','):
+            name = name[:-1]
 
-    name = name.replace(':','_')
-
+        name = name.replace(':','_')
+    else:
+        name =''
     return name
 
 def download_and_tag_track(track, output_folder):

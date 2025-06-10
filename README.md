@@ -39,14 +39,9 @@ This project allows you to download and tag songs, albums, or playlists from Spo
    YOUTUBE_API_KEY = 'your_youtube_api_key'
    ```
 
-2. Update the `link` variable in the script with the Spotify link of the track, album, or playlist you want to download:
-   ```python
-   link = ""
-   ```
-
-3. Run the script:
+2. Run the script with the link to a Spotify track, album, or playlist you want to download:
    ```bash
-   python main.py
+   python main.py <link>
    ```
 
 ## How It Works
